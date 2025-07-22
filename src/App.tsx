@@ -10,6 +10,7 @@ import KPIsPage from './components/KPIsPage';
 import EvaluationsPage from './components/EvaluationsPage';
 import SettingsPage from './components/SettingsPage';
 import RoleManagementPage from './components/RoleManagementPage';
+import AccessControlPage from './components/AccessControlPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 const AppContent: React.FC = () => {
@@ -54,6 +55,11 @@ const AppContent: React.FC = () => {
           <Route path="/roles" element={
             <ProtectedRoute requiredPermission={NAVIGATION_PERMISSIONS.ROLE_MANAGEMENT_VIEW}>
               <RoleManagementPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/access-control" element={
+            <ProtectedRoute requiredPermission="ACCESS_CONTROL_VIEW">
+              <AccessControlPage />
             </ProtectedRoute>
           } />
           <Route path="/settings" element={

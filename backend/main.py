@@ -214,6 +214,35 @@ class Notification(Base):
 
     user = relationship("User")
 
+class UserPermission(Base):
+    __tablename__ = "user_permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    permission_id = Column(Integer, ForeignKey("permissions.id"))
+    module_name = Column(String)  # e.g., 'users', 'kpis', 'evaluations'
+    action_name = Column(String)  # e.g., 'read', 'write', 'delete', 'approve'
+    is_active = Column(Boolean, default=True)
+    granted_by = Column(Integer, ForeignKey("users.id"))
+    granted_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)  # For temporary permissions
+
+    user = relationship("User", foreign_keys=[user_id])
+    permission = relationship("Permission")
+    granted_by_user = relationship("User", foreign_keys=[granted_by])
+
+class GranularPermission(Base):
+    __tablename__ = "granular_permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    module_name = Column(String, index=True)  # e.g., 'users', 'kpis', 'evaluations', 'roles'
+    action_name = Column(String, index=True)  # e.g., 'read', 'write', 'delete', 'approve', 'export'
+    permission_key = Column(String, unique=True, index=True)  # e.g., 'users.read', 'kpis.write'
+    display_name = Column(String)  # Human readable name
+    description = Column(String)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class LocalStorageUsers(Base):
     __tablename__ = "localStorage_users"
 
@@ -3178,6 +3207,128 @@ def get_evaluation_by_id(
     eval_dict["permissions"] = permissions
     return eval_dict
 
+# ============================================================================
+# GRANULAR ACCESS CONTROL ENDPOINTS (SUPER ADMIN ONLY)
+# ============================================================================
+
+SUPER_ADMIN_EMAIL = "sgul@trafix.com"
+
+def verify_super_admin(current_user: User = Depends(get_current_user)):
+    """Verify that the current user is the super admin"""
+    if current_user.email != SUPER_ADMIN_EMAIL:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Access denied. Only super admin can access granular access control."
+        )
+    return current_user
+
+@app.get("/access-control/summary")
+def get_access_control_summary(
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(verify_super_admin)
+):
+    """Get access control summary statistics"""
+    from services.access_control import AccessControlService
+    return AccessControlService.get_access_control_summary(db)
+
+@app.get("/access-control/granular-permissions")
+def get_granular_permissions(
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(verify_super_admin)
+):
+    """Get all granular permissions"""
+    from services.access_control import AccessControlService
+    return AccessControlService.get_granular_permissions(db)
+
+@app.post("/access-control/granular-permissions")
+def create_granular_permission(
+    permission_data: dict,
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(verify_super_admin)
+):
+    """Create a new granular permission"""
+    from services.access_control import AccessControlService
+    from schemas.access_control import GranularPermissionCreate
+    
+    permission_create = GranularPermissionCreate(**permission_data)
+    return AccessControlService.create_granular_permission(db, permission_create)
+
+@app.get("/access-control/users-with-permissions")
+def get_users_with_granular_permissions(
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(verify_super_admin)
+):
+    """Get all users who have granular permissions assigned"""
+    from services.access_control import AccessControlService
+    return AccessControlService.get_all_users_with_granular_permissions(db)
+
+@app.get("/access-control/users/{user_id}/permissions")
+def get_user_granular_permissions(
+    user_id: int,
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(verify_super_admin)
+):
+    """Get granular permissions for a specific user"""
+    from services.access_control import AccessControlService
+    permissions = AccessControlService.get_user_granular_permissions(db, user_id)
+    return [{"id": p.id, "user_id": p.user_id, "permission_id": p.permission_id, 
+             "module_name": p.module_name, "action_name": p.action_name, 
+             "is_active": p.is_active, "granted_by": p.granted_by, 
+             "granted_at": p.granted_at, "expires_at": p.expires_at} for p in permissions]
+
+@app.post("/access-control/users/{user_id}/permissions")
+def assign_permission_to_user(
+    user_id: int,
+    permission_data: dict,
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(verify_super_admin)
+):
+    """Assign a granular permission to a user"""
+    from services.access_control import AccessControlService
+    from schemas.access_control import UserPermissionCreate
+    
+    permission_data["user_id"] = user_id  # Ensure user_id matches URL
+    permission_create = UserPermissionCreate(**permission_data)
+    user_permission = AccessControlService.assign_permission_to_user(db, permission_create, current_user.id)
+    
+    return {"id": user_permission.id, "user_id": user_permission.user_id, 
+            "permission_id": user_permission.permission_id, 
+            "module_name": user_permission.module_name, 
+            "action_name": user_permission.action_name, 
+            "is_active": user_permission.is_active, 
+            "granted_by": user_permission.granted_by, 
+            "granted_at": user_permission.granted_at, 
+            "expires_at": user_permission.expires_at}
+
+@app.delete("/access-control/user-permissions/{user_permission_id}")
+def revoke_user_permission(
+    user_permission_id: int,
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(verify_super_admin)
+):
+    """Revoke a user's granular permission"""
+    from services.access_control import AccessControlService
+    success = AccessControlService.revoke_user_permission(db, user_permission_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="User permission not found"
+        )
+    return {"message": "Permission revoked successfully"}
+
+@app.get("/access-control/users/{user_id}/check-permission/{module_name}/{action_name}")
+def check_user_granular_permission(
+    user_id: int,
+    module_name: str,
+    action_name: str,
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(verify_super_admin)
+):
+    """Check if a user has a specific granular permission"""
+    from services.access_control import AccessControlService
+    has_permission = AccessControlService.check_user_granular_permission(db, user_id, module_name, action_name)
+    return {"has_permission": has_permission}
+
 # Create tables
 Base.metadata.create_all(bind=engine)
 
@@ -3236,6 +3387,57 @@ def init_admin_user():
                 db.commit()
                 db.refresh(manager_role)
                 logger.info("Manager role created successfully")
+
+            # Create default granular permissions for the access control system
+            try:
+                default_permissions = [
+                    {
+                        'module_name': 'users',
+                        'action_name': 'read',
+                        'display_name': 'View Users',
+                        'description': 'Ability to view user information'
+                    },
+                    {
+                        'module_name': 'users',
+                        'action_name': 'write',
+                        'display_name': 'Edit Users',
+                        'description': 'Ability to create and modify user accounts'
+                    },
+                    {
+                        'module_name': 'evaluations',
+                        'action_name': 'approve',
+                        'display_name': 'Approve Evaluations',
+                        'description': 'Ability to approve submitted evaluations'
+                    },
+                    {
+                        'module_name': 'kpis',
+                        'action_name': 'delete',
+                        'display_name': 'Delete KPIs',
+                        'description': 'Ability to delete KPI definitions'
+                    },
+                ]
+
+                for perm_data in default_permissions:
+                    existing_perm = db.query(GranularPermission).filter(
+                        GranularPermission.module_name == perm_data['module_name'],
+                        GranularPermission.action_name == perm_data['action_name']
+                    ).first()
+                    
+                    if not existing_perm:
+                        permission_key = f"{perm_data['module_name']}.{perm_data['action_name']}"
+                        granular_perm = GranularPermission(
+                            module_name=perm_data['module_name'],
+                            action_name=perm_data['action_name'],
+                            permission_key=permission_key,
+                            display_name=perm_data['display_name'],
+                            description=perm_data['description']
+                        )
+                        db.add(granular_perm)
+                
+                db.commit()
+                logger.info("Default granular permissions created successfully")
+            except Exception as e:
+                logger.error(f"Error creating default granular permissions: {e}")
 
             logger.info("Database initialization completed successfully")
         except Exception as e:

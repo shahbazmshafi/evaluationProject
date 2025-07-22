@@ -25,6 +25,8 @@ const Layout: React.FC<LayoutProps> = React.memo(({ children }) => {
     { name: 'KPIs', icon: BarChart3, path: '/kpis', permission: NAVIGATION_PERMISSIONS.KPI_VIEW },
     { name: 'Users', icon: Users, path: '/users', permission: NAVIGATION_PERMISSIONS.USERS_VIEW },
     { name: 'Role Management', icon: Shield, path: '/roles', permission: NAVIGATION_PERMISSIONS.ROLE_MANAGEMENT_VIEW },
+    // Only show Access Control to super admin
+    ...(user?.email === 'sgul@trafix.com' ? [{ name: 'Access Control', icon: Shield, path: '/access-control', permission: 'ACCESS_CONTROL_VIEW' }] : []),
     { name: 'Settings', icon: Settings, path: '/settings', permission: NAVIGATION_PERMISSIONS.SETTINGS_VIEW },
   ];
 

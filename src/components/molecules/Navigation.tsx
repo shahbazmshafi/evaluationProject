@@ -2,7 +2,7 @@ import React from 'react';
 import { LucideIcon } from 'lucide-react';
 import NavLink from '../atoms/NavLink';
 import { useAuth } from '../../contexts/AuthContext';
-import { hasPermission } from '../../utils/permissions';
+import { hasPermission, hasPermissionEnhanced } from '../../utils/permissions';
 
 export interface NavigationItem {
   name: string;
@@ -27,6 +27,11 @@ const Navigation: React.FC<NavigationProps> = React.memo(({
     // If no permission is required or it's a special case (Dashboard or Settings)
     if (!item.permission || item.permission === 'DASHBOARD_VIEW' || item.permission === 'SETTINGS_VIEW') {
       return true;
+    }
+
+    // Use enhanced permission checker for special permissions like ACCESS_CONTROL_VIEW
+    if (item.permission === 'ACCESS_CONTROL_VIEW') {
+      return hasPermissionEnhanced(user, item.permission);
     }
 
     // Check if user has the required permission

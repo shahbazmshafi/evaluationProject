@@ -108,4 +108,30 @@ export const NAVIGATION_PERMISSIONS: Record<string, PermissionName> = {
   USERS_VIEW: 'USERS_VIEW',
   ROLE_MANAGEMENT_VIEW: 'ROLE_MANAGEMENT_VIEW',
   SETTINGS_VIEW: 'SETTINGS_VIEW',
+  ACCESS_CONTROL_VIEW: 'ACCESS_CONTROL_VIEW', // Super admin only
+};
+
+/**
+ * Check if a user is the super admin
+ * @param user The user to check
+ * @returns True if the user is the super admin
+ */
+export const isSuperAdmin = (user: User | null): boolean => {
+  return user?.email === 'sgul@trafix.com';
+};
+
+/**
+ * Enhanced permission checker that handles both role-based and super admin access
+ * @param user The user to check
+ * @param permissionName The name of the permission to check for
+ * @returns True if the user has the permission or is super admin for special permissions
+ */
+export const hasPermissionEnhanced = (user: User | null, permissionName: PermissionName): boolean => {
+  // Special case for access control - only super admin
+  if (permissionName === 'ACCESS_CONTROL_VIEW') {
+    return isSuperAdmin(user);
+  }
+  
+  // For all other permissions, use the standard role-based check
+  return hasPermission(user, permissionName);
 };

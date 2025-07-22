@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { hasPermission, NAVIGATION_PERMISSIONS } from '../utils/permissions';
+import { hasPermission, hasPermissionEnhanced, NAVIGATION_PERMISSIONS } from '../utils/permissions';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -28,8 +28,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <>{children}</>;
   }
 
-  // Check if the user has the required permission
-  if (!hasPermission(user, requiredPermission)) {
+  // Use enhanced permission checker for special permissions like ACCESS_CONTROL_VIEW
+  const hasRequiredPermission = requiredPermission === 'ACCESS_CONTROL_VIEW' 
+    ? hasPermissionEnhanced(user, requiredPermission)
+    : hasPermission(user, requiredPermission);
+
+  if (!hasRequiredPermission) {
     console.warn(`Access denied: User lacks permission ${requiredPermission}`);
     return <Navigate to={redirectPath} replace />;
   }

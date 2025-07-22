@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Evaluations Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+        }
+        .test-case {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-case h2 {
+            margin-top: 0;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .failure {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Test Evaluations Page</h1>
+        
+        <div class="test-case">
+            <h2>Test Case 1: Admin User</h2>
+            <p>Login as "sgul@trafix.com" with password "Asdf@12345" and verify that 2 employees are visible on the Evaluations page.</p>
+            <button onclick="openAppAsAdmin()">Test Admin Login</button>
+            <div id="adminResult" class="result"></div>
+        </div>
+        
+        <div class="test-case">
+            <h2>Test Case 2: Manager User</h2>
+            <p>Login as "tabbas@trafix.com" with password "Asdf@12345" and verify that 1 employee (direct report) is visible on the Evaluations page.</p>
+            <button onclick="openAppAsManager()">Test Manager Login</button>
+            <div id="managerResult" class="result"></div>
+        </div>
+        
+        <h2>Test Instructions</h2>
+        <ol>
+            <li>Click on the "Test Admin Login" button to open the application with admin credentials.</li>
+            <li>Navigate to the Evaluations page and verify that 2 employees are visible.</li>
+            <li>Close that window and return to this page.</li>
+            <li>Click on the "Test Manager Login" button to open the application with manager credentials.</li>
+            <li>Navigate to the Evaluations page and verify that 1 employee (direct report) is visible.</li>
+        </ol>
+        
+        <h2>Manual Testing Steps</h2>
+        <pre>
+1. Admin Test:
+   - Login with email: sgul@trafix.com
+   - Password: Asdf@12345
+   - Navigate to Evaluations page
+   - Verify 2 employees are visible
+
+2. Manager Test:
+   - Login with email: tabbas@trafix.com
+   - Password: Asdf@12345
+   - Navigate to Evaluations page
+   - Verify 1 employee (direct report) is visible
+        </pre>
+    </div>
+
+    <script>
+        function openAppAsAdmin() {
+            window.open('/', '_blank');
+            document.getElementById('adminResult').innerHTML = 'Application opened in a new tab. Please login with admin credentials and check the Evaluations page.';
+            document.getElementById('adminResult').style.display = 'block';
+            document.getElementById('adminResult').className = 'result success';
+        }
+        
+        function openAppAsManager() {
+            window.open('/', '_blank');
+            document.getElementById('managerResult').innerHTML = 'Application opened in a new tab. Please login with manager credentials and check the Evaluations page.';
+            document.getElementById('managerResult').style.display = 'block';
+            document.getElementById('managerResult').className = 'result success';
+        }
+    </script>
+</body>
+</html>

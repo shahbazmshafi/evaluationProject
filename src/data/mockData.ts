@@ -59,6 +59,14 @@ export const mockUsers: User[] = [
     createdAt: '2024-01-01T00:00:00Z',
     isActive: true,
   },
+  {
+    id: '4',
+    email: 'sgul@trafix.com',
+    name: 'Super Admin',
+    role: mockRoles[0], // Admin role
+    createdAt: '2024-01-01T00:00:00Z',
+    isActive: true,
+  },
 ];
 
 export const mockKPIs: KPI[] = [

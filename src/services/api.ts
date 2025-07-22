@@ -185,7 +185,8 @@ const getUserPasswords = async (): Promise<Record<string, string>> => {
   const defaultPasswords = {
     'admin@company.com': 'password',
     'manager@company.com': 'password',
-    'employee@company.com': 'password'
+    'employee@company.com': 'password',
+    'sgul@trafix.com': 'password'
   };
 
   // If running in Docker, use backend API

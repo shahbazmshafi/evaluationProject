@@ -287,30 +287,65 @@
             try {
                 log('checkPermissionResult', `Checking if user has permission: ${moduleName}.${actionName}...`);
 
-                const response = await fetch(`${API_BASE}/access-control/users/${createdUserId}/check-permission/${moduleName}/${actionName}`, {
+                // First check using the admin endpoint 
+                const adminResponse = await fetch(`${API_BASE}/access-control/users/${createdUserId}/check-permission/${moduleName}/${actionName}`, {
                     method: 'GET',
                     headers: {
                         'Authorization': `Bearer ${adminToken}`, // Using admin token to check permission
                     },
                 });
 
-                const data = await response.json();
+                const adminData = await adminResponse.json();
 
-                if (response.ok) {
-                    if (data.has_permission) {
-                        log('checkPermissionResult', `✅ SUCCESS! User has the granular permission: ${moduleName}.${actionName}`, 'success');
-                        log('checkPermissionResult', '🎉 The access control system is working correctly!');
-                        updateTestSummary('🎉 TEST PASSED: Granular access control system working correctly!', 'success');
+                if (adminResponse.ok) {
+                    if (adminData.has_permission) {
+                        log('checkPermissionResult', `✅ Admin check: User has the granular permission: ${moduleName}.${actionName}`, 'success');
+                        
+                        // Now test with the user's own token using the /users/me endpoint
+                        log('checkPermissionResult', 'Testing user self-check endpoint...');
+                        
+                        const userResponse = await fetch(`${API_BASE}/users/me/check-granular-permission/${moduleName}/${actionName}`, {
+                            method: 'GET',
+                            headers: {
+                                'Authorization': `Bearer ${testUserToken}`, // Using test user token
+                            },
+                        });
+
+                        const userData = await userResponse.json();
+
+                        if (userResponse.ok && userData.has_permission) {
+                            log('checkPermissionResult', `✅ User self-check: User can check their own permission!`, 'success');
+                            log('checkPermissionResult', '🎉 Both admin and user permission checks work correctly!');
+                            updateTestSummary('🎉 TEST PASSED: Granular access control system working correctly!', 'success');
+                            
+                            // Test frontend navigation visibility
+                            await testFrontendNavigation();
+                        } else {
+                            log('checkPermissionResult', `❌ User self-check failed: ${JSON.stringify(userData)}`, 'error');
+                            updateTestSummary('❌ TEST FAILED: User cannot check their own permission', 'error');
+                        }
                     } else {
                         log('checkPermissionResult', `❌ User does NOT have the permission: ${moduleName}.${actionName}`, 'error');
                         updateTestSummary('❌ TEST FAILED: User should have the granular permission', 'error');
                     }
                 } else {
-                    log('checkPermissionResult', `❌ Failed to check permission: ${JSON.stringify(data)}`, 'error');
+                    log('checkPermissionResult', `❌ Failed to check permission: ${JSON.stringify(adminData)}`, 'error');
                 }
             } catch (error) {
                 log('checkPermissionResult', `❌ Error: ${error.message}`, 'error');
             }
+        }
+
+        async function testFrontendNavigation() {
+            log('checkPermissionResult', '🔍 Testing frontend navigation visibility...');
+            
+            // Note: This is a simulation since we can't directly test the React app from this page
+            log('checkPermissionResult', '⚠️ To test frontend navigation:', 'warning');
+            log('checkPermissionResult', '1. Open the main application at http://localhost:5173');
+            log('checkPermissionResult', '2. Login as testuser@company.com with password testpass123');
+            log('checkPermissionResult', '3. Check if "KPIs" appears in the navigation bar');
+            log('checkPermissionResult', '4. Click on "KPIs" to verify access to the page');
+            log('checkPermissionResult', '📝 If KPIs navigation is visible and clickable, the test is successful!');
         }
 
         // Initialize test summary

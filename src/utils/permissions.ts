@@ -154,7 +154,8 @@ export const hasGranularPermission = async (user: User | null, moduleName: strin
       ? '/api' 
       : 'http://localhost:8000';
     
-    const response = await fetch(`${API_BASE_URL}/access-control/users/${user.id}/check-permission/${moduleName}/${actionName}`, {
+    // Use the endpoint that allows users to check their own permissions
+    const response = await fetch(`${API_BASE_URL}/users/me/check-granular-permission/${moduleName}/${actionName}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`,
       },

@@ -3238,6 +3238,15 @@ def create_granular_permission_service(db: Session, permission_data: GranularPer
     """Create a new granular permission"""
     permission_key = f"{permission_data.module_name}.{permission_data.action_name}"
     
+    # Check if permission already exists
+    existing_permission = db.query(GranularPermission).filter(
+        GranularPermission.permission_key == permission_key
+    ).first()
+    
+    if existing_permission:
+        # Return the existing permission instead of creating a duplicate
+        return existing_permission
+    
     db_permission = GranularPermission(
         module_name=permission_data.module_name,
         action_name=permission_data.action_name,
@@ -3444,6 +3453,18 @@ def check_user_granular_permission(
 ):
     """Check if a user has a specific granular permission"""
     has_permission = check_user_granular_permission_service(db, user_id, module_name, action_name)
+    return {"has_permission": has_permission}
+
+# New endpoint for users to check their own granular permissions (no super admin restriction)
+@app.get("/users/me/check-granular-permission/{module_name}/{action_name}")
+def check_my_granular_permission(
+    module_name: str,
+    action_name: str,
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    """Check if the current user has a specific granular permission"""
+    has_permission = check_user_granular_permission_service(db, current_user.id, module_name, action_name)
     return {"has_permission": has_permission}
 
 # Create tables

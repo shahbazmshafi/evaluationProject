@@ -36,6 +36,12 @@ class UserPermissionBase(BaseModel):
     module_name: str
     action_name: str
 
+class UserPermissionCreateRequest(BaseModel):
+    permission_id: int
+    module_name: str
+    action_name: str
+    expires_at: Optional[datetime] = None
+
 class UserPermissionCreate(UserPermissionBase):
     expires_at: Optional[datetime] = None
 

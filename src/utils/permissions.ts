@@ -135,3 +135,75 @@ export const hasPermissionEnhanced = (user: User | null, permissionName: Permiss
   // For all other permissions, use the standard role-based check
   return hasPermission(user, permissionName);
 };
+
+/**
+ * Check if a user has a specific granular permission
+ * @param user The user to check
+ * @param moduleName The module name (e.g., 'kpis', 'users')
+ * @param actionName The action name (e.g., 'header_navigation', 'read')
+ * @returns Promise<boolean> True if the user has the granular permission
+ */
+export const hasGranularPermission = async (user: User | null, moduleName: string, actionName: string): Promise<boolean> => {
+  if (!user || !user.id) {
+    return false;
+  }
+
+  try {
+    // Use the same API base URL configuration as the rest of the app
+    const API_BASE_URL = process.env.NODE_ENV === 'production' || window.location.hostname === 'localhost' && window.location.port === '80' 
+      ? '/api' 
+      : 'http://localhost:8000';
+    
+    const response = await fetch(`${API_BASE_URL}/access-control/users/${user.id}/check-permission/${moduleName}/${actionName}`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data.has_permission === true;
+    }
+  } catch (error) {
+    console.error('Error checking granular permission:', error);
+  }
+
+  return false;
+};
+
+/**
+ * Check if a user has either role-based permission OR granular permission
+ * @param user The user to check
+ * @param rolePermissionName The role-based permission name
+ * @param moduleName The module name for granular permission check
+ * @param actionName The action name for granular permission check
+ * @returns Promise<boolean> True if the user has either permission
+ */
+export const hasEitherPermission = async (
+  user: User | null, 
+  rolePermissionName: PermissionName, 
+  moduleName: string, 
+  actionName: string
+): Promise<boolean> => {
+  // First check role-based permission
+  if (hasPermission(user, rolePermissionName)) {
+    return true;
+  }
+
+  // Then check granular permission
+  return await hasGranularPermission(user, moduleName, actionName);
+};
+
+/**
+ * GRANULAR PERMISSION CONSTANTS
+ * These constants represent module.action permissions for the granular access control system
+ */
+export const GRANULAR_PERMISSIONS = {
+  KPI_HEADER_NAVIGATION: { module: 'kpis', action: 'header_navigation' },
+  KPI_READ: { module: 'kpis', action: 'read' },
+  KPI_WRITE: { module: 'kpis', action: 'write' },
+  KPI_DELETE: { module: 'kpis', action: 'delete' },
+  USERS_READ: { module: 'users', action: 'read' },
+  USERS_WRITE: { module: 'users', action: 'write' },
+  EVALUATIONS_APPROVE: { module: 'evaluations', action: 'approve' },
+} as const;

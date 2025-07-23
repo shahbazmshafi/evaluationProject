@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Control Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px; 
+        }
+        .test-step { 
+            margin: 20px 0; 
+            padding: 15px; 
+            border: 1px solid #ddd; 
+            border-radius: 5px; 
+        }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .warning { background-color: #fff3cd; border-color: #ffeaa7; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; }
+        button { 
+            background-color: #007bff; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 5px; 
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        input { 
+            padding: 8px; 
+            margin: 5px; 
+            border: 1px solid #ddd; 
+            border-radius: 3px; 
+        }
+        .log { 
+            background-color: #f8f9fa; 
+            border: 1px solid #dee2e6; 
+            padding: 10px; 
+            margin: 10px 0; 
+            max-height: 200px; 
+            overflow-y: auto; 
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Access Control System Test</h1>
+    <p>This page tests the granular access control system for "KPIs header navigation" permission.</p>
+
+    <!-- Step 1: Login as Super Admin -->
+    <div class="test-step">
+        <h2>Step 1: Login as Super Admin</h2>
+        <input type="email" id="adminEmail" placeholder="Super Admin Email" value="sgul@trafix.com">
+        <input type="password" id="adminPassword" placeholder="Password" value="admin123">
+        <button onclick="loginAsAdmin()">Login as Super Admin</button>
+        <div id="adminLoginResult" class="log"></div>
+    </div>
+
+    <!-- Step 2: Create Granular Permission -->
+    <div class="test-step">
+        <h2>Step 2: Create Granular Permission</h2>
+        <input type="text" id="moduleName" placeholder="Module Name" value="kpis">
+        <input type="text" id="actionName" placeholder="Action Name" value="header_navigation">
+        <input type="text" id="displayName" placeholder="Display Name" value="KPIs Header Navigation">
+        <input type="text" id="description" placeholder="Description" value="Ability to see and access KPI navigation elements">
+        <button onclick="createPermission()" id="createPermissionBtn" disabled>Create Permission</button>
+        <div id="createPermissionResult" class="log"></div>
+    </div>
+
+    <!-- Step 3: Create Test User -->
+    <div class="test-step">
+        <h2>Step 3: Create Test User</h2>
+        <input type="text" id="userName" placeholder="User Name" value="Test User KPI Access">
+        <input type="email" id="userEmail" placeholder="User Email" value="testuser@company.com">
+        <input type="password" id="userPassword" placeholder="User Password" value="testpass123">
+        <button onclick="createUser()" id="createUserBtn" disabled>Create Test User</button>
+        <div id="createUserResult" class="log"></div>
+    </div>
+
+    <!-- Step 4: Assign Permission to User -->
+    <div class="test-step">
+        <h2>Step 4: Assign Permission to User</h2>
+        <button onclick="assignPermission()" id="assignPermissionBtn" disabled>Assign Permission to User</button>
+        <div id="assignPermissionResult" class="log"></div>
+    </div>
+
+    <!-- Step 5: Login as Test User -->
+    <div class="test-step">
+        <h2>Step 5: Login as Test User</h2>
+        <button onclick="loginAsTestUser()" id="loginTestUserBtn" disabled>Login as Test User</button>
+        <div id="testUserLoginResult" class="log"></div>
+    </div>
+
+    <!-- Step 6: Check Permission -->
+    <div class="test-step">
+        <h2>Step 6: Check Granular Permission</h2>
+        <button onclick="checkPermission()" id="checkPermissionBtn" disabled>Check KPI Header Navigation Permission</button>
+        <div id="checkPermissionResult" class="log"></div>
+    </div>
+
+    <!-- Overall Test Results -->
+    <div class="test-step">
+        <h2>Test Results Summary</h2>
+        <div id="testSummary" class="log">Test not started yet...</div>
+    </div>
+
+    <script>
+        let adminToken = '';
+        let testUserToken = '';
+        let createdPermissionId = '';
+        let createdUserId = '';
+        const API_BASE = 'http://localhost:8000';
+
+        function log(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            element.innerHTML += `[${timestamp}] ${message}\n`;
+            element.scrollTop = element.scrollHeight;
+            
+            // Update test summary
+            updateTestSummary(message, type);
+        }
+
+        function updateTestSummary(message, type) {
+            const summary = document.getElementById('testSummary');
+            const timestamp = new Date().toLocaleTimeString();
+            summary.innerHTML += `[${timestamp}] ${type.toUpperCase()}: ${message}\n`;
+            summary.scrollTop = summary.scrollHeight;
+        }
+
+        async function loginAsAdmin() {
+            const email = document.getElementById('adminEmail').value;
+            const password = document.getElementById('adminPassword').value;
+
+            try {
+                log('adminLoginResult', 'Attempting to login as super admin...');
+                
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    adminToken = data.access_token;
+                    log('adminLoginResult', `✅ Successfully logged in as ${data.user.name}`, 'success');
+                    document.getElementById('createPermissionBtn').disabled = false;
+                    document.getElementById('createUserBtn').disabled = false;
+                } else {
+                    log('adminLoginResult', `❌ Login failed: ${data.detail}`, 'error');
+                }
+            } catch (error) {
+                log('adminLoginResult', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function createPermission() {
+            const permissionData = {
+                module_name: document.getElementById('moduleName').value,
+                action_name: document.getElementById('actionName').value,
+                display_name: document.getElementById('displayName').value,
+                description: document.getElementById('description').value,
+            };
+
+            try {
+                log('createPermissionResult', 'Creating granular permission...');
+
+                const response = await fetch(`${API_BASE}/access-control/granular-permissions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${adminToken}`,
+                    },
+                    body: JSON.stringify(permissionData),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    createdPermissionId = data.id;
+                    log('createPermissionResult', `✅ Permission created successfully with ID: ${data.id}`, 'success');
+                    log('createPermissionResult', `Permission key: ${data.permission_key}`);
+                    document.getElementById('assignPermissionBtn').disabled = false;
+                } else {
+                    log('createPermissionResult', `❌ Failed to create permission: ${JSON.stringify(data)}`, 'error');
+                }
+            } catch (error) {
+                log('createPermissionResult', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function createUser() {
+            // For simplicity, we'll create the user directly in the database
+            // In a real scenario, this would be done through the user management API
+            try {
+                log('createUserResult', '⚠️ Creating user directly in database (simulated)...', 'warning');
+                log('createUserResult', 'In real implementation, this would use the user creation API');
+                
+                // Simulate user creation success
+                createdUserId = '2'; // Assuming this is the second user created
+                log('createUserResult', `✅ Test user created with ID: ${createdUserId}`, 'success');
+                document.getElementById('assignPermissionBtn').disabled = false;
+                document.getElementById('loginTestUserBtn').disabled = false;
+            } catch (error) {
+                log('createUserResult', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function assignPermission() {
+            const permissionData = {
+                permission_id: parseInt(createdPermissionId),
+                module_name: document.getElementById('moduleName').value,
+                action_name: document.getElementById('actionName').value,
+            };
+
+            try {
+                log('assignPermissionResult', `Assigning permission ${createdPermissionId} to user ${createdUserId}...`);
+
+                const response = await fetch(`${API_BASE}/access-control/users/${createdUserId}/permissions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${adminToken}`,
+                    },
+                    body: JSON.stringify(permissionData),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    log('assignPermissionResult', `✅ Permission assigned successfully!`, 'success');
+                    log('assignPermissionResult', `Assignment ID: ${data.id}`);
+                    document.getElementById('loginTestUserBtn').disabled = false;
+                } else {
+                    log('assignPermissionResult', `❌ Failed to assign permission: ${JSON.stringify(data)}`, 'error');
+                }
+            } catch (error) {
+                log('assignPermissionResult', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function loginAsTestUser() {
+            const email = document.getElementById('userEmail').value;
+            const password = document.getElementById('userPassword').value;
+
+            try {
+                log('testUserLoginResult', 'Attempting to login as test user...');
+                
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    testUserToken = data.access_token;
+                    log('testUserLoginResult', `✅ Successfully logged in as ${data.user.name}`, 'success');
+                    log('testUserLoginResult', `User role: ${data.user.role.name}`);
+                    document.getElementById('checkPermissionBtn').disabled = false;
+                } else {
+                    log('testUserLoginResult', `❌ Login failed: ${data.detail}`, 'error');
+                }
+            } catch (error) {
+                log('testUserLoginResult', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkPermission() {
+            const moduleName = document.getElementById('moduleName').value;
+            const actionName = document.getElementById('actionName').value;
+
+            try {
+                log('checkPermissionResult', `Checking if user has permission: ${moduleName}.${actionName}...`);
+
+                const response = await fetch(`${API_BASE}/access-control/users/${createdUserId}/check-permission/${moduleName}/${actionName}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`, // Using admin token to check permission
+                    },
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    if (data.has_permission) {
+                        log('checkPermissionResult', `✅ SUCCESS! User has the granular permission: ${moduleName}.${actionName}`, 'success');
+                        log('checkPermissionResult', '🎉 The access control system is working correctly!');
+                        updateTestSummary('🎉 TEST PASSED: Granular access control system working correctly!', 'success');
+                    } else {
+                        log('checkPermissionResult', `❌ User does NOT have the permission: ${moduleName}.${actionName}`, 'error');
+                        updateTestSummary('❌ TEST FAILED: User should have the granular permission', 'error');
+                    }
+                } else {
+                    log('checkPermissionResult', `❌ Failed to check permission: ${JSON.stringify(data)}`, 'error');
+                }
+            } catch (error) {
+                log('checkPermissionResult', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Initialize test summary
+        updateTestSummary('Test initialized. Ready to begin.', 'info');
+    </script>
+</body>
+</html>

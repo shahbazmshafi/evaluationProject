@@ -22,7 +22,16 @@ const Layout: React.FC<LayoutProps> = React.memo(({ children }) => {
   const navigationItems: NavigationItem[] = [
     { name: 'Dashboard', icon: BarChart3, path: '/', permission: NAVIGATION_PERMISSIONS.DASHBOARD_VIEW },
     { name: 'Evaluations', icon: Target, path: '/evaluations', permission: NAVIGATION_PERMISSIONS.EVALUATION_VIEW },
-    { name: 'KPIs', icon: BarChart3, path: '/kpis', permission: NAVIGATION_PERMISSIONS.KPI_VIEW },
+    { 
+      name: 'KPIs', 
+      icon: BarChart3, 
+      path: '/kpis', 
+      permission: NAVIGATION_PERMISSIONS.KPI_VIEW,
+      granularPermission: {
+        module: 'kpis',
+        action: 'header_navigation'
+      }
+    },
     { name: 'Users', icon: Users, path: '/users', permission: NAVIGATION_PERMISSIONS.USERS_VIEW },
     { name: 'Role Management', icon: Shield, path: '/roles', permission: NAVIGATION_PERMISSIONS.ROLE_MANAGEMENT_VIEW },
     // Only show Access Control to super admin

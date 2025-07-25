@@ -885,11 +885,8 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
     Update a user.
     Admin users can update any user, managers can only update their team members.
     """
-    # Get the role of the current user
-    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
-
     # Check if the user is an admin or manager
-    if not user_role or (user_role.name.lower() != "admin" and user_role.name.lower() != "manager"):
+    if not (current_user.is_admin() or current_user.is_manager(db)):
         raise HTTPException(status_code=403, detail="Not authorized to update users")
 
     # Get the user to update
@@ -897,8 +894,8 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # If manager, check if the user is their team member
-    if user_role.name.lower() == "manager" and db_user.manager_id != current_user.id:
+    # If manager (non-admin), check if the user is their team member
+    if not current_user.is_admin() and db_user.manager_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to update this user")
 
     # Update user fields
@@ -911,9 +908,6 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
 
     # Also update the user in localStorage tables in the main database
     try:
-        # Get the role information
-        role = db.query(Role).filter(Role.id == db_user.role_id).first()
-
         # Get existing users from localStorage_users table
         localStorage_users = db.query(LocalStorageUsers).filter(LocalStorageUsers.id == 1).first()
 
@@ -926,12 +920,7 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
                     # Update user fields
                     users[i]["name"] = db_user.name
                     users[i]["email"] = db_user.email
-                    users[i]["role"] = {
-                        "id": str(role.id),
-                        "name": role.name,
-                        "permissions": [],
-                        "isCustom": role.is_custom
-                    }
+                    users[i]["isAdmin"] = db_user.is_admin()
                     users[i]["managerId"] = str(db_user.manager_id) if db_user.manager_id else None
                     users[i]["isActive"] = db_user.is_active
                     break
@@ -964,8 +953,7 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User 
     Only admin users can access this endpoint.
     """
     # Check if the user is an admin
-    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
-    if not user_role or user_role.name.lower() != "admin":
+    if not current_user.is_admin():
         raise HTTPException(status_code=403, detail="Not authorized to delete users")
 
     # Get the user
@@ -1022,10 +1010,11 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User 
 
 @app.get("/kpis", response_model=List[KPIResponse])
 def get_kpis(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
-    if user_role and user_role.name.lower() == "admin":
+    if current_user.is_admin():
+        # Admin can see all KPIs
         return db.query(KPI).filter(KPI.status == "active").all()
-    elif user_role and user_role.name.lower() == "manager":
+    elif current_user.is_manager(db):
+        # Manager can see KPIs for their direct reports
         direct_reports = db.query(User.id).filter(User.manager_id == current_user.id).all()
         direct_report_ids = [u.id for u in direct_reports]
         if not direct_report_ids:

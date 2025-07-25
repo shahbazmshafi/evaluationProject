@@ -55,22 +55,44 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     name = Column(String)
     password_hash = Column(String)
+    role_id = Column(Integer, ForeignKey("roles.id"))
     manager_id = Column(Integer, ForeignKey("users.id"))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    role = relationship("Role", back_populates="users")
     manager = relationship("User", remote_side=[id])
     evaluations = relationship("Evaluation", foreign_keys="Evaluation.employee_id", back_populates="employee")
     managed_evaluations = relationship("Evaluation", foreign_keys="Evaluation.manager_id", back_populates="manager")
-    
-    def is_admin(self):
-        """User is admin if they have no manager (top of hierarchy)"""
-        return self.manager_id is None
-    
-    def is_manager(self, db):
-        """User is manager if they have direct reports"""
-        return db.query(User).filter(User.manager_id == self.id).count() > 0
 
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True)
+    is_custom = Column(Boolean, default=False)
+
+    users = relationship("User", back_populates="role")
+    permissions = relationship("RolePermission", back_populates="role")
+
+class Permission(Base):
+    __tablename__ = "permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True)
+    description = Column(String)
+
+    roles = relationship("RolePermission", back_populates="permission")
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    role_id = Column(Integer, ForeignKey("roles.id"))
+    permission_id = Column(Integer, ForeignKey("permissions.id"))
+
+    role = relationship("Role", back_populates="permissions")
+    permission = relationship("Permission", back_populates="roles")
 
 class KPI(Base):
     __tablename__ = "kpis"
@@ -79,7 +101,8 @@ class KPI(Base):
     title = Column(String)
     description = Column(Text)
     weightage = Column(Float)
-    type = Column(String)  # global, employee-specific
+    type = Column(String)  # global, role-based, employee-specific
+    target_role_id = Column(Integer, ForeignKey("roles.id"))
     target_employee_id = Column(Integer, ForeignKey("users.id"))
     status = Column(String, default="active")  # draft, active, archived
     created_by = Column(Integer, ForeignKey("users.id"))
@@ -88,6 +111,7 @@ class KPI(Base):
     is_technical = Column(Boolean, default=True)
 
     creator = relationship("User", foreign_keys=[created_by])
+    target_role = relationship("Role", foreign_keys=[target_role_id])
     target_employee = relationship("User", foreign_keys=[target_employee_id])
     manager = relationship("User", foreign_keys=[manager_id])
 
@@ -120,27 +144,22 @@ class Evaluation(Base):
     normalized_score = Column(Float)
     performance_label = Column(String)
     increment_percentage = Column(Float)
-    status = Column(String, default="draft")  # draft, self_submitted, manager_review, admin_review, approved, rejected
+    status = Column(String, default="draft")  # draft, submitted, approved, rejected
     comments = Column(Text)
     manager_comments = Column(Text)  # Manager-only comments
     admin_comments = Column(Text)  # Admin-only comments
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    submitted_at = Column(DateTime)  # When the evaluation was submitted by employee
-    manager_reviewed_at = Column(DateTime)  # When reviewed by manager
-    approved_at = Column(DateTime)  # When the evaluation was approved by admin
+    submitted_at = Column(DateTime)  # When the evaluation was submitted
+    approved_at = Column(DateTime)  # When the evaluation was approved
     rejected_at = Column(DateTime)  # When the evaluation was rejected
     created_by = Column(Integer, ForeignKey("users.id"))  # Who created the evaluation
-    submitted_by = Column(Integer, ForeignKey("users.id"), default=None)  # Who submitted the evaluation
     drafted_by = Column(Integer, ForeignKey("users.id"))  # Who drafted the evaluation
-    current_reviewer_id = Column(Integer, ForeignKey("users.id"))  # Who should review next
 
     employee = relationship("User", foreign_keys=[employee_id], back_populates="evaluations")
     manager = relationship("User", foreign_keys=[manager_id], back_populates="managed_evaluations")
     creator = relationship("User", foreign_keys=[created_by])
-    submitter = relationship("User", foreign_keys=[submitted_by])
     drafter = relationship("User", foreign_keys=[drafted_by])
-    current_reviewer = relationship("User", foreign_keys=[current_reviewer_id])
     cycle = relationship("EvaluationCycle", back_populates="evaluations")
     kpi_evaluations = relationship("KPIEvaluation", back_populates="evaluation")
 
@@ -224,24 +243,62 @@ class UserCreate(BaseModel):
     email: EmailStr
     name: str
     password: str
+    role_id: int
     manager_id: Optional[int] = None
 
+class PermissionResponse(BaseModel):
+    id: int
+    name: str
+    description: str
 
+    class Config:
+        from_attributes = True
+
+class RolePermissionResponse(BaseModel):
+    id: int
+    role_id: int
+    permission_id: int
+    permission: PermissionResponse
+
+    class Config:
+        from_attributes = True
+
+class RoleResponse(BaseModel):
+    id: int
+    name: str
+    is_custom: bool
+    permissions: List[RolePermissionResponse] = []
+
+    class Config:
+        from_attributes = True
+
+class RoleCreate(BaseModel):
+    name: str
+    is_custom: bool = True
+
+class RoleUpdate(BaseModel):
+    name: str
+    is_custom: Optional[bool] = None
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     name: Optional[str] = None
+    role_id: Optional[int] = None
     manager_id: Optional[int] = None
     is_active: Optional[bool] = None
+
+class RolePermissionCreate(BaseModel):
+    role_id: int
+    permission_id: int
 
 class UserResponse(BaseModel):
     id: int
     email: str
     name: str
+    role: RoleResponse
     manager_id: Optional[int]
     is_active: bool
     created_at: datetime
-    is_admin: Optional[bool] = False
 
     class Config:
         from_attributes = True
@@ -251,6 +308,7 @@ class KPICreate(BaseModel):
     description: str
     weightage: float
     type: str
+    target_role_id: Optional[int] = None
     target_employee_id: Optional[int] = None
     status: str = "active"
     manager_id: Optional[int] = None
@@ -265,6 +323,7 @@ class KPIResponse(BaseModel):
     description: str
     weightage: float
     type: str
+    target_role_id: Optional[int]
     target_employee_id: Optional[int]
     status: str
     created_by: int
@@ -280,6 +339,7 @@ class KPIUpdate(BaseModel):
     description: Optional[str] = None
     weightage: Optional[float] = None
     type: Optional[str] = None
+    target_role_id: Optional[int] = None
     target_employee_id: Optional[int] = None
     status: Optional[str] = None
     is_technical: Optional[bool] = None
@@ -505,28 +565,22 @@ def calculate_remaining_days(end_date: datetime) -> int:
     delta = end_date_only - today
     return max(0, delta.days)
 
-def has_hierarchy_permission(db: Session, user_id: int, permission_type: str, target_user_id: int = None) -> bool:
-    """Check if a user has hierarchy-based permission"""
+def has_permission(db: Session, user_id: int, permission_name: str) -> bool:
+    """Check if a user has a specific permission"""
+    # Get the user's role
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         return False
-    
-    # Admin (no manager) has all permissions
-    if user.is_admin():
-        return True
-    
-    # Manager permissions
-    if permission_type == "manage_team":
-        # Can manage direct reports
-        if target_user_id:
-            target_user = db.query(User).filter(User.id == target_user_id).first()
-            return target_user and target_user.manager_id == user_id
-        return user.is_manager(db)
-    
-    # Employee permissions
-    if permission_type == "view_own_data":
-        return target_user_id == user_id
-    
+
+    # Get the role permissions
+    role_permissions = db.query(RolePermission).filter(RolePermission.role_id == user.role_id).all()
+
+    # Check if the user has the required permission
+    for rp in role_permissions:
+        permission = db.query(Permission).filter(Permission.id == rp.permission_id).first()
+        if permission and permission.name == permission_name:
+            return True
+
     return False
 
 def calculate_raw_score(kpi_evaluations: List[KPIEvaluationCreate]) -> float:
@@ -605,10 +659,30 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
         logger.info(f"Successful login for user: {request.email}")
 
-        # Return login response with hierarchy-based user info
-        user_response = UserResponse.from_orm(user)
-        user_response.is_admin = user.is_admin()
-        return LoginResponse(access_token=access_token, user=user_response)
+        # Check if user has a role
+        if not user.role:
+            # Get the default Employee role
+            role = db.query(Role).filter(Role.name == "Employee").first()
+            if not role:
+                # If Employee role doesn't exist, create it
+                role = Role(name="Employee", is_custom=False)
+                db.add(role)
+                db.commit()
+                db.refresh(role)
+                logger.info(f"Created default Employee role for user {user.email}")
+
+            # Update the user's role_id
+            user.role_id = role.id
+            db.commit()
+            db.refresh(user)
+            logger.info(f"Updated user {user.email} with default Employee role")
+
+        # Get the role's permissions
+        role_permissions = db.query(RolePermission).filter(RolePermission.role_id == user.role_id).all()
+        user.role.permissions = role_permissions
+
+        # Return login response
+        return LoginResponse(access_token=access_token, user=UserResponse.from_orm(user))
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
@@ -621,10 +695,19 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 @app.get("/auth/validate")
 def validate_token(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Validates the JWT token and returns the user information"""
-    user_response = UserResponse.from_orm(current_user)
-    user_response.is_admin = current_user.is_admin()
-    
-    return {"valid": True, "user": user_response.dict()}
+    # Get the role's permissions
+    role_permissions = db.query(RolePermission).filter(RolePermission.role_id == current_user.role_id).all()
+    current_user.role.permissions = role_permissions
+
+    user_response = UserResponse.from_orm(current_user).dict()
+
+    # Transform the user data to match the frontend's expected structure
+    # Convert is_custom to isCustom
+    if "role" in user_response and "is_custom" in user_response["role"]:
+        user_response["role"]["isCustom"] = user_response["role"]["is_custom"]
+        user_response["role"].pop("is_custom")
+
+    return {"valid": True, "user": user_response}
 
 @app.post("/auth/logout")
 def logout():
@@ -633,24 +716,25 @@ def logout():
 
 @app.get("/users", response_model=List[UserResponse])
 def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # Hierarchy-based authorization
-    if current_user.is_admin():
-        # Admin can see all users
-        users = db.query(User).all()
-    elif current_user.is_manager(db):
-        # Manager can see their direct reports and themselves
-        users = db.query(User).filter(
-            or_(User.manager_id == current_user.id, User.id == current_user.id)
-        ).all()
+    # Get the role of the current user
+    role = db.query(Role).filter(Role.id == current_user.role_id).first()
+
+    # Check if user has USER_READ or KPI_READ permission
+    has_user_read = has_permission(db, current_user.id, "USER_READ")
+    has_kpi_read = has_permission(db, current_user.id, "KPI_READ")
+
+    # Check if the user is an admin, manager, or has USER_READ or KPI_READ permission
+    if role and (role.name.lower() == "admin" or role.name.lower() == "manager" or has_user_read or has_kpi_read):
+        # If manager, only return their team members
+        if role.name.lower() == "manager" and not has_user_read and not has_kpi_read:
+            # Use join to explicitly load the role relationship
+            return db.query(User).join(Role).filter(User.manager_id == current_user.id).all()
+        # If admin or has USER_READ or KPI_READ permission, return all users
+        # Use join to explicitly load the role relationship
+        return db.query(User).join(Role).all()
     else:
-        # Employee can only see themselves
-        users = [current_user]
-    
-    # Set is_admin flag for each user
-    for user in users:
-        user.is_admin = user.is_admin()
-    
-    return users
+        # If not authorized, raise an exception
+        raise HTTPException(status_code=403, detail="Not authorized to access user data")
 
 @app.post("/users/first-admin", response_model=UserResponse)
 def create_first_admin(user_data: dict, db: Session = Depends(get_db)):
@@ -858,7 +942,47 @@ def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: U
 
     return db_user
 
+# Role Management Endpoints
+@app.get("/roles", response_model=List[RoleResponse])
+def get_roles(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Get all roles.
+    Admin users can access all roles.
+    Managers can access roles that belong to their direct reports.
+    Users with USER_READ or KPI_READ permission can access all roles.
+    """
+    # Get the role of the current user
+    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
 
+    # Check if user has USER_READ or KPI_READ permission
+    has_user_read = has_permission(db, current_user.id, "USER_READ")
+    has_kpi_read = has_permission(db, current_user.id, "KPI_READ")
+
+    # Check if the user is an admin, manager, or has USER_READ or KPI_READ permission
+    if not user_role or (user_role.name.lower() != "admin" and user_role.name.lower() != "manager" and not has_user_read and not has_kpi_read):
+        raise HTTPException(status_code=403, detail="Not authorized to access role data")
+
+    # Get roles based on user's role
+    if user_role.name.lower() == "manager" and not has_user_read and not has_kpi_read:
+        # For managers without USER_READ or KPI_READ permission, get roles of their direct reports
+        # First, get all direct reports of the manager
+        direct_reports = db.query(User).filter(User.manager_id == current_user.id, User.is_active == True).all()
+
+        # Get unique role IDs from direct reports
+        direct_report_role_ids = set(user.role_id for user in direct_reports)
+
+        # Get roles that match these IDs
+        roles = db.query(Role).filter(Role.id.in_(direct_report_role_ids)).all()
+    else:
+        # For admins or users with USER_READ or KPI_READ permission, get all roles
+        roles = db.query(Role).all()
+
+    # For each role, get its permissions
+    for role in roles:
+        role_permissions = db.query(RolePermission).filter(RolePermission.role_id == role.id).all()
+        role.permissions = role_permissions
+
+    return roles
 
 @app.put("/users/{user_id}", response_model=UserResponse)
 def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -989,7 +1113,191 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User 
 
     return None
 
+@app.get("/roles/{role_id}", response_model=RoleResponse)
+def get_role(role_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Get a specific role by ID.
+    Only admin users can access this endpoint.
+    """
+    # Check if the user is an admin
+    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
+    if not user_role or user_role.name.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to access role data")
 
+    # Get the role
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    # Get the role's permissions
+    role_permissions = db.query(RolePermission).filter(RolePermission.role_id == role.id).all()
+    role.permissions = role_permissions
+
+    return role
+
+@app.post("/roles", response_model=RoleResponse)
+def create_role(role: RoleCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Create a new role.
+    Only admin users can access this endpoint.
+    """
+    # Check if the user is an admin
+    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
+    if not user_role or user_role.name.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to create roles")
+
+    # Check if role with this name already exists
+    existing_role = db.query(Role).filter(Role.name == role.name).first()
+    if existing_role:
+        raise HTTPException(status_code=400, detail="Role with this name already exists")
+
+    # Create the role
+    db_role = Role(name=role.name, is_custom=role.is_custom)
+    db.add(db_role)
+    db.commit()
+    db.refresh(db_role)
+
+    return db_role
+
+@app.put("/roles/{role_id}", response_model=RoleResponse)
+def update_role(role_id: int, role: RoleUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Update a role.
+    Only admin users can access this endpoint.
+    """
+    # Check if the user is an admin
+    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
+    if not user_role or user_role.name.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to update roles")
+
+    # Get the role
+    db_role = db.query(Role).filter(Role.id == role_id).first()
+    if not db_role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    # Don't allow updating built-in roles
+    if not db_role.is_custom:
+        raise HTTPException(status_code=400, detail="Cannot update built-in roles")
+
+    # Update the role
+    db_role.name = role.name
+    if role.is_custom is not None:
+        db_role.is_custom = role.is_custom
+
+    db.commit()
+    db.refresh(db_role)
+
+    return db_role
+
+@app.delete("/roles/{role_id}", status_code=204)
+def delete_role(role_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Delete a role.
+    Only admin users can access this endpoint.
+    """
+    # Check if the user is an admin
+    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
+    if not user_role or user_role.name.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to delete roles")
+
+    # Get the role
+    db_role = db.query(Role).filter(Role.id == role_id).first()
+    if not db_role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    # Don't allow deleting built-in roles
+    if not db_role.is_custom:
+        raise HTTPException(status_code=400, detail="Cannot delete built-in roles")
+
+    # Check if any users are using this role
+    users_with_role = db.query(User).filter(User.role_id == role_id).count()
+    if users_with_role > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete role that is assigned to users")
+
+    # Delete the role's permissions
+    db.query(RolePermission).filter(RolePermission.role_id == role_id).delete()
+
+    # Delete the role
+    db.delete(db_role)
+    db.commit()
+
+    return None
+
+# Permission Management Endpoints
+@app.get("/permissions", response_model=List[PermissionResponse])
+def get_permissions(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Get all permissions.
+    Only admin users can access this endpoint.
+    """
+    # Check if the user is an admin
+    role = db.query(Role).filter(Role.id == current_user.role_id).first()
+    if not role or role.name.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to access permission data")
+
+    return db.query(Permission).all()
+
+@app.post("/role-permissions", response_model=RolePermissionResponse)
+def add_permission_to_role(role_permission: RolePermissionCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Add a permission to a role.
+    Only admin users can access this endpoint.
+    """
+    # Check if the user is an admin
+    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
+    if not user_role or user_role.name.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to manage role permissions")
+
+    # Check if the role exists
+    role = db.query(Role).filter(Role.id == role_permission.role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    # Check if the permission exists
+    permission = db.query(Permission).filter(Permission.id == role_permission.permission_id).first()
+    if not permission:
+        raise HTTPException(status_code=404, detail="Permission not found")
+
+    # Check if the role already has this permission
+    existing_role_permission = db.query(RolePermission).filter(
+        RolePermission.role_id == role_permission.role_id,
+        RolePermission.permission_id == role_permission.permission_id
+    ).first()
+    if existing_role_permission:
+        raise HTTPException(status_code=400, detail="Role already has this permission")
+
+    # Add the permission to the role
+    db_role_permission = RolePermission(
+        role_id=role_permission.role_id,
+        permission_id=role_permission.permission_id
+    )
+    db.add(db_role_permission)
+    db.commit()
+    db.refresh(db_role_permission)
+
+    return db_role_permission
+
+@app.delete("/role-permissions/{role_permission_id}", status_code=204)
+def remove_permission_from_role(role_permission_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Remove a permission from a role.
+    Only admin users can access this endpoint.
+    """
+    # Check if the user is an admin
+    user_role = db.query(Role).filter(Role.id == current_user.role_id).first()
+    if not user_role or user_role.name.lower() != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to manage role permissions")
+
+    # Get the role permission
+    db_role_permission = db.query(RolePermission).filter(RolePermission.id == role_permission_id).first()
+    if not db_role_permission:
+        raise HTTPException(status_code=404, detail="Role permission not found")
+
+    # Delete the role permission
+    db.delete(db_role_permission)
+    db.commit()
+
+    return None
 
 @app.get("/kpis", response_model=List[KPIResponse])
 def get_kpis(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -2900,6 +3208,35 @@ def init_admin_user():
 
             db.commit()
             logger.info("localStorage tables in the main database initialized successfully")
+
+            # Check if admin role exists
+            admin_role = db.query(Role).filter(Role.name == "Admin").first()
+            if not admin_role:
+                # Create admin role
+                admin_role = Role(name="Admin", is_custom=False)
+                db.add(admin_role)
+                db.commit()
+                db.refresh(admin_role)
+                logger.info("Admin role created successfully")
+
+            # Create employee role if it doesn't exist
+            employee_role = db.query(Role).filter(Role.name == "Employee").first()
+            if not employee_role:
+                employee_role = Role(name="Employee", is_custom=False)
+                db.add(employee_role)
+                db.commit()
+                db.refresh(employee_role)
+                logger.info("Employee role created successfully")
+
+            # Create manager role if it doesn't exist
+            manager_role = db.query(Role).filter(Role.name == "Manager").first()
+            if not manager_role:
+                manager_role = Role(name="Manager", is_custom=False)
+                db.add(manager_role)
+                db.commit()
+                db.refresh(manager_role)
+                logger.info("Manager role created successfully")
+
             logger.info("Database initialization completed successfully")
         except Exception as e:
             db.rollback()

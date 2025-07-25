@@ -606,8 +606,15 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
         logger.info(f"Successful login for user: {request.email}")
 
         # Return login response with hierarchy-based user info
-        user_response = UserResponse.from_orm(user)
-        user_response.is_admin = user.is_admin()
+        user_response = UserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            manager_id=user.manager_id,
+            is_active=user.is_active,
+            created_at=user.created_at,
+            is_admin=user.is_admin()
+        )
         return LoginResponse(access_token=access_token, user=user_response)
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -621,8 +628,15 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 @app.get("/auth/validate")
 def validate_token(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Validates the JWT token and returns the user information"""
-    user_response = UserResponse.from_orm(current_user)
-    user_response.is_admin = current_user.is_admin()
+    user_response = UserResponse(
+        id=current_user.id,
+        email=current_user.email,
+        name=current_user.name,
+        manager_id=current_user.manager_id,
+        is_active=current_user.is_active,
+        created_at=current_user.created_at,
+        is_admin=current_user.is_admin()
+    )
     
     return {"valid": True, "user": user_response.dict()}
 
@@ -646,40 +660,41 @@ def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_cu
         # Employee can only see themselves
         users = [current_user]
     
-    # Set is_admin flag for each user
+    # Convert to UserResponse objects to avoid serialization issues
+    user_responses = []
     for user in users:
-        user.is_admin = user.is_admin()
+        user_response = UserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            manager_id=user.manager_id,
+            is_active=user.is_active,
+            created_at=user.created_at,
+            is_admin=user.is_admin()
+        )
+        user_responses.append(user_response)
     
-    return users
+    return user_responses
 
 @app.post("/users/first-admin", response_model=UserResponse)
 def create_first_admin(user_data: dict, db: Session = Depends(get_db)):
     """
     Create the first admin user without authentication.
     This endpoint should only be used during initial setup.
+    Admin user is identified by having no manager (manager_id = None).
     """
     # Check if any users exist
     existing_users = db.query(User).count()
     if existing_users > 0:
         raise HTTPException(status_code=403, detail="Cannot create first admin user when users already exist")
 
-    # Check if admin role exists
-    admin_role = db.query(Role).filter(Role.name == "Admin").first()
-    if not admin_role:
-        # Create admin role
-        admin_role = Role(name="Admin", is_custom=False)
-        db.add(admin_role)
-        db.commit()
-        db.refresh(admin_role)
-        print("Admin role created successfully")
-
-    # Create admin user
+    # Create admin user (admin has no manager)
     try:
         admin_user = User(
             email=user_data["email"],
             name=user_data["name"],
             password_hash=hash_password(user_data["password"]),
-            role_id=admin_role.id,
+            manager_id=None,  # Admin has no manager
             is_active=True
         )
         logger.info(f"Created admin user: {user_data['email']}")
@@ -697,15 +712,11 @@ def create_first_admin(user_data: dict, db: Session = Depends(get_db)):
             "id": str(admin_user.id),
             "name": admin_user.name,
             "email": admin_user.email,
-            "role": {
-                "id": str(admin_role.id),
-                "name": admin_role.name,
-                "permissions": [],
-                "isCustom": admin_role.is_custom
-            },
+            "isAdmin": True,
             "department": "Administration",
             "isActive": admin_user.is_active,
-            "createdAt": admin_user.created_at.isoformat()
+            "createdAt": admin_user.created_at.isoformat(),
+            "managerId": None
         }
 
         # Get existing users from localStorage_users table
@@ -749,15 +760,39 @@ def create_first_admin(user_data: dict, db: Session = Depends(get_db)):
         db.rollback()
         logger.error(f"Error adding admin user to localStorage tables: {e}", exc_info=True)
 
-    return admin_user
+    # Create user response manually to avoid method serialization issues
+    user_response = UserResponse(
+        id=admin_user.id,
+        email=admin_user.email,
+        name=admin_user.name,
+        manager_id=admin_user.manager_id,
+        is_active=admin_user.is_active,
+        created_at=admin_user.created_at,
+        is_admin=admin_user.is_admin()
+    )
+    return user_response
 
 @app.post("/users", response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # Only admins and managers can create users
+    if not (current_user.is_admin() or current_user.is_manager(db)):
+        raise HTTPException(status_code=403, detail="Not authorized to create users")
+    
     # Check if user with this email already exists
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         logger.warning(f"Attempt to create user with existing email: {user.email}")
         raise HTTPException(status_code=400, detail="User with this email already exists")
+
+    # Validate manager_id if provided
+    if user.manager_id:
+        manager = db.query(User).filter(User.id == user.manager_id).first()
+        if not manager:
+            raise HTTPException(status_code=400, detail="Manager not found")
+        
+        # Non-admins can only assign themselves as manager
+        if not current_user.is_admin() and user.manager_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Can only assign yourself as manager")
 
     # Create user in employee_eval.db
     try:
@@ -765,7 +800,6 @@ def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: U
             email=user.email,
             name=user.name,
             password_hash=hash_password(user.password),
-            role_id=user.role_id,
             manager_id=user.manager_id
         )
         logger.info(f"Created new user: {user.email}")
@@ -778,27 +812,6 @@ def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: U
 
     # Also add the user to localStorage tables in the main database for frontend authentication
     try:
-        # Get the role information
-        role = db.query(Role).filter(Role.id == user.role_id).first()
-
-        # Check if role exists
-        if not role:
-            logger.error(f"Role with ID {user.role_id} not found for user {user.email}")
-            # Get the default Employee role instead
-            role = db.query(Role).filter(Role.name == "Employee").first()
-            if not role:
-                # If Employee role doesn't exist, create it
-                role = Role(name="Employee", is_custom=False)
-                db.add(role)
-                db.commit()
-                db.refresh(role)
-                logger.info(f"Created default Employee role for user {user.email}")
-
-            # Update the user's role_id
-            db_user.role_id = role.id
-            db.commit()
-            db.refresh(db_user)
-            logger.info(f"Updated user {user.email} with default Employee role")
 
         # Get existing users from localStorage_users table
         localStorage_users = db.query(LocalStorageUsers).filter(LocalStorageUsers.id == 1).first()
@@ -812,12 +825,8 @@ def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: U
             "id": str(db_user.id),
             "name": db_user.name,
             "email": db_user.email,
-            "role": {
-                "id": str(role.id),
-                "name": role.name,
-                "permissions": [],
-                "isCustom": role.is_custom
-            },
+            "isAdmin": db_user.is_admin(),
+            "managerId": str(db_user.manager_id) if db_user.manager_id else None,
             "department": "Department",
             "isActive": db_user.is_active,
             "createdAt": db_user.created_at.isoformat()
@@ -856,7 +865,17 @@ def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: U
     except Exception as e:
         logger.error(f"Error adding user to localStorage tables: {e}", exc_info=True)
 
-    return db_user
+    # Create user response manually to avoid method serialization issues
+    user_response = UserResponse(
+        id=db_user.id,
+        email=db_user.email,
+        name=db_user.name,
+        manager_id=db_user.manager_id,
+        is_active=db_user.is_active,
+        created_at=db_user.created_at,
+        is_admin=db_user.is_admin()
+    )
+    return user_response
 
 
 
@@ -926,7 +945,17 @@ def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get
         logger.error(f"Error updating user in localStorage tables: {e}", exc_info=True)
         # Continue execution since the user was already updated in the main database
 
-    return db_user
+    # Create user response manually to avoid method serialization issues
+    user_response = UserResponse(
+        id=db_user.id,
+        email=db_user.email,
+        name=db_user.name,
+        manager_id=db_user.manager_id,
+        is_active=db_user.is_active,
+        created_at=db_user.created_at,
+        is_admin=db_user.is_admin()
+    )
+    return user_response
 
 @app.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
